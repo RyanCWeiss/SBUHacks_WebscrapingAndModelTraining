@@ -1,142 +1,182 @@
-# Imports needed
+
+import tensorflow as tf
+import tensorflow_hub as hub
 import os
+from tensorflow import keras
+import tensorflow.keras.layers
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
-img_height = 28
-img_width = 28
-batch_size = 2
+directory = "./images/"
+img_edge_length= 100
+img_height = img_edge_length
+img_width = img_edge_length
 
-model = keras.Sequential(
-    [
-        layers.Input((28, 28, 1)),
-        layers.Conv2D(16, 3, padding="same"),
-        layers.Conv2D(32, 3, padding="same"),
-        layers.MaxPooling2D(),
-        layers.Flatten(),
-        layers.Dense(10),
-    ]
-)
+# class_names = ['cat', 'dog']
+class_names = ['circle', 'square']
+filename = '_'.join(class_names)
 
-#                      METHOD 1
-# ==================================================== #
-#             Using dataset_from_directory             #
-# ==================================================== #
-ds_train = tf.keras.preprocessing.image_dataset_from_directory(
-    "data/mnist_subfolders/",
-    labels="inferred",
-    label_mode="int",  # categorical, binary
-    # class_names=['0', '1', '2', '3', ...]
-    color_mode="grayscale",
-    batch_size=batch_size,
-    image_size=(img_height, img_width),  # reshape if not in this size
-    shuffle=True,
-    seed=123,
-    validation_split=0.1,
-    subset="training",
-)
+#===================================================#
+#                  Create Datasets                  #
+#===================================================#
 
-ds_validation = tf.keras.preprocessing.image_dataset_from_directory(
-    "data/mnist_subfolders/",
-    labels="inferred",
-    label_mode="int",  # categorical, binary
-    # class_names=['0', '1', '2', '3', ...]
-    color_mode="grayscale",
-    batch_size=batch_size,
-    image_size=(img_height, img_width),  # reshape if not in this size
-    shuffle=True,
-    seed=123,
-    validation_split=0.1,
-    subset="validation",
-)
+def create_datasets(directory, img_height,img_width):
+    batch_size = 2
 
+    ds_train = tf.keras.preprocessing.image_dataset_from_directory(
+        directory,
+        labels="inferred",
+        label_mode="int",  # categorical, int, binary
+        class_names= class_names,
+        color_mode="rgb",
+        batch_size=batch_size,
+        image_size=(img_height, img_width),  # reshape if not in this size
+        shuffle=True,
+        seed=123, # consistency between identical training inputs
+        validation_split=0.1,
+        subset="training",
+    )
+    # size = (img_height, img_width)
+    # ds_train = ds_train.map(lambda img: tf.cast(img,tf.float32)/255)
+
+    ds_validation = tf.keras.preprocessing.image_dataset_from_directory(
+        directory,
+        labels="inferred",
+        label_mode="int",  # catagorical, int, binary
+        class_names= class_names,
+        color_mode="rgb",
+        batch_size=batch_size,
+        image_size=(img_height, img_width),  # reshape if not in this size
+        shuffle=True,
+        seed=123, # consistency between identical training inputs
+        validation_split=0.1,
+        subset="validation",
+    )
+    # ds_validation = ds_validation.map(lambda img: tf.keras.preprocessing.image.smart_resize(img, size))
+
+    ds_train = ds_train.map(augment)
+    ds_validation = ds_validation.map(augment)
+
+    return ds_train, ds_validation
 
 def augment(x, y):
     image = tf.image.random_brightness(x, max_delta=0.05)
     return image, y
 
 
-ds_train = ds_train.map(augment)
+ds_train, ds_validation = create_datasets(directory,img_height, img_width)
 
-# Custom Loops
-for epochs in range(10):
-    for x, y in ds_train:
-        # train here
-        pass
+#===================================================#
+#                Create/load Model                  #
+#===================================================#
 
 
-model.compile(
-    optimizer=keras.optimizers.Adam(),
-    loss=[keras.losses.SparseCategoricalCrossentropy(from_logits=True),],
-    metrics=["accuracy"],
-)
+# do_fine_tuning = True
+#
+# module_selection = ("mobilenet_v2_100_224", 224) #@param ["(\"mobilenet_v2_100_224\", 224)", "(\"inception_v3\", 299)"] {type:"raw", allow-input: true}
+# handle_base, pixels = module_selection
+# MODULE_HANDLE ="https://tfhub.dev/google/imagenet/{}/feature_vector/4".format(handle_base)
+# IMAGE_SIZE = (pixels, pixels)
+# print("Using {} with input size {}".format(MODULE_HANDLE, IMAGE_SIZE))
+#
+#
+# # BATCH_SIZE = 32 #@param {type:"integer"}
+# BATCH_SIZE = 2
+#
+# model = tf.keras.Sequential([
+#     hub.KerasLayer(MODULE_HANDLE, trainable=do_fine_tuning),
+#     tf.keras.layers.Dropout(rate=0.2),
+#     tf.keras.layers.Dense(ds_train.cardinality().numpy(), activation='softmax',
+#                           kernel_regularizer=tf.keras.regularizers.l2(0.0001))
+# ])
+# model.build((None,)+IMAGE_SIZE+(3,))
+# model.summary()
+#
+# model.compile(
+#     optimizer=tf.keras.optimizers.SGD(learning_rate=0.005, momentum=0.9),
+#     loss=tf.keras.losses.CategoricalCrossentropy(from_logits=True, label_smoothing=0.1),
+#     metrics=['accuracy'])
+#
+# steps_per_epoch = BATCH_SIZE # BATCH_SIZE
+# validation_steps = BATCH_SIZE # BATCH_SIZE
+# hist = model.fit(
+#     ds_train,
+#     epochs=5, steps_per_epoch=steps_per_epoch,
+#     validation_data=ds_validation,
+#     validation_steps=validation_steps).history
 
-model.fit(ds_train, epochs=10, verbose=2)
+num_classes = len(class_names)
+
+def load_model(class_names):
+    sorted(class_names)
+    filename = '_'.join(class_names)
+    path = f"trainingmodels/{filename}.hdf5"
+
+    try:
+        model = keras.models.load_model(path)
+    except:
+        model = tf.keras.Sequential([
+            tf.keras.layers.Rescaling(
+                scale=1./255, offset=0.0,
+            ),
+            tf.keras.layers.experimental.preprocessing.Rescaling(1./255, input_shape=(img_height, img_width, 3)),
+            tf.keras.layers.Conv2D(100, 3, padding='same', activation='relu'),
+            tf.keras.layers.MaxPooling2D(pool_size=(2, 2),
+                                         strides=(1, 1), padding='same'),
+            tf.keras.layers.Conv2D(80, 3, padding='same', activation='relu'),
+            tf.keras.layers.Conv2D(32, 3, padding='same', activation='relu'),
+            tf.keras.layers.Conv2D(20, 3, padding='same', activation='relu'),
+            tf.keras.layers.Flatten(),
+            tf.keras.layers.Dense(20, activation='relu'),
+            tf.keras.layers.Dense(num_classes)
+        ])
+    return model
 
 
-#                           METHOD 2
-# ================================================================== #
-#             ImageDataGenerator and flow_from_directory             #
-# ================================================================== #
-
-datagen = ImageDataGenerator(
-    rescale=1.0 / 255,
-    rotation_range=5,
-    zoom_range=(0.95, 0.95),
-    horizontal_flip=False,
-    vertical_flip=False,
-    data_format="channels_last",
-    validation_split=0.0,
-    dtype=tf.float32,
-)
-
-train_generator = datagen.flow_from_directory(
-    "data/mnist_subfolders/",
-    target_size=(img_height, img_width),
-    batch_size=batch_size,
-    color_mode="grayscale",
-    class_mode="sparse",
-    shuffle=True,
-    subset="training",
-    seed=123,
-)
 
 
-def training():
-    pass
 
 
-# Custom Loops
-for epoch in range(10):
-    num_batches = 0
+#===================================================#
+#                    Train Model                    #
+#===================================================#
 
-    for x, y in ds_train:
-        num_batches += 1
+def trainModel(model, ds_train, ds_validation):
+    epochs=10
+    history = model.fit(
+        ds_train,
+        validation_data=ds_train,
+        epochs=epochs
+    )
+    return
 
-        # do training
-        training()
 
-        if num_batches == 25:  # len(train_dataset)/batch_size
-            break
 
-# Redo model.compile to reset the optimizer states
-model.compile(
-    optimizer=keras.optimizers.Adam(),
-    loss=[keras.losses.SparseCategoricalCrossentropy(from_logits=True),],
-    metrics=["accuracy"],
-)
 
-# using model.fit (note steps_per_epoch)
-model.fit(
-    train_generator,
-    epochs=10,
-    steps_per_epoch=25,
-    verbose=2,
-    # if we had a validation generator:
-    # validation_data=validation_generator,
-    # valiation_steps=len(validation_set)/batch_size),
-)
+#===================================================#
+#                    Save Model                     #
+#===================================================#
+def save_model(class_names):
+    sorted(class_names)
+    filename = '_'.join(class_names)
+    path = f"trainingmodels/{filename}.hdf5"
+    model.save(path)
+    return
+
+
+#===================================================#
+#                      Run                          #
+#===================================================#
+
+model = load_model(class_names)
+
+model.compile(optimizer=keras.optimizers.Adam(learning_rate=0.0003),
+              loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+              metrics=['accuracy'])
+# model.build()
+
+trainModel(model, ds_train, ds_validation)
+
+model.summary()
+
+save_model(class_names)

@@ -10,7 +10,7 @@ import tensorflow_hub as hub
 
 do_fine_tuning = True
 
-module_selection = ("mobilenet_v2_100_224", 224) #@param ["(\"mobilenet_v2_100_224\", 224)", "(\"inception_v3\", 299)"] {type:"raw", allow-input: true}
+module_selection = ("mobilenet_v2_100_224", 1000) #@param ["(\"mobilenet_v2_100_224\", 224)", "(\"inception_v3\", 299)"] {type:"raw", allow-input: true}
 handle_base, pixels = module_selection
 MODULE_HANDLE ="https://tfhub.dev/google/imagenet/{}/feature_vector/4".format(handle_base)
 IMAGE_SIZE = (pixels, pixels)
